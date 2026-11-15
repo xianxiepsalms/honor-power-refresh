@@ -70,7 +70,7 @@ body.focus-ours .relation{opacity:.3}
   <header>
     <div>
       <h1>荣耀电源刷新率钩子 · 三层归属</h1>
-      <p class="lead">系统事件、自装工具、厂商私有组件分属三方，彼此并不知道对方存在，靠任务定义与 P/Invoke 硬接起来。</p>
+      <p class="lead">系统事件、自装工具、厂商私有组件分属三方；默认路径只用到前两层，厂商 DLL 仅在标准 API 失败时作为可选回退。</p>
     </div>
     <button id="onlyOurs" type="button" aria-pressed="false">只看我们写的（第 2 层）</button>
   </header>
@@ -110,11 +110,11 @@ body.focus-ours .relation{opacity:.3}
         <li><code>HonorPowerRefresh.cs</code> 及其编译产物 <code>HonorPowerRefresh.exe</code>：一次性 C# 程序，负责策略与校验。</li>
         <li><code>build.ps1</code>、<code>Install-HonorPowerRefresh.ps1</code>、<code>Remove-HonorPowerRefresh.ps1</code>、<code>HonorPowerRefresh.config.ini</code>、<code>HonorPowerRefresh.log</code>、说明文档与本网页。</li>
       </ul>
-      <p>执行链：等 750ms → 读 AC/电池 → 定目标 120/60 Hz → 已是目标则退出 → 枚举可用档位 → 调 <code>ChangeFrequency</code> → 读回验证。不常驻、不改注册表或服务、不装驱动；exe 未签名，位于用户可写目录。</p>
+      <p>执行链：等 750ms → 读 AC/电池 → 定目标 120/60 Hz → 已是目标则退出 → 枚举可用档位 → <code>ChangeDisplaySettingsEx</code> 一次设定（先 <code>CDS_TEST</code> 探测）→ 读回验证；仅失败时才回退 <code>ChangeFrequency</code>。不常驻、不改注册表或服务、不装驱动；exe 未签名，位于用户可写目录。</p>
     </details>
   </section>
 
-  <div class="relation"><span class="arrow">↓</span> P/Invoke 调用（DllImport）</div>
+  <div class="relation"><span class="arrow">↓</span> 仅回退路径：P/Invoke 调用（DllImport）</div>
 
   <section class="layer oem">
     <div class="layer-head">
@@ -122,14 +122,14 @@ body.focus-ours .relation{opacity:.3}
     </div>
     <div class="cards">
       <div class="card"><b>HardwareHal.dll</b><small>Hardware Abstract Layer</small></div>
-      <div class="card"><b>ChangeFrequency</b><small>命名导出，序号 2</small></div>
-      <div class="card"><b>Fn+R 热键</b><small>与工具同一入口</small></div>
+      <div class="card"><b>ChangeFrequency</b><small>命名导出 2 · 行为已确认</small></div>
+      <div class="card"><b>Fn+R 热键</b><small>管家自己的切换入口</small></div>
     </div>
     <details>
       <summary>这一层不是 Windows API</summary>
-      <p>文件 <code>C:\Program Files\HONOR\OSD\HardwareHal.dll</code>，版本信息为 <code>Honor Device Co., Ltd.</code> / <code>Hardware Abstract Layer</code> / <code>PC Manager 1.0.0.1</code>。解析 PE 导出表：PE32+ x64，Base=1，20 个函数 / 20 个命名导出，<code>ChangeFrequency</code> 是真实的命名导出（序号 2，函数 RVA <code>0xBBC0</code>），同表还有 <code>HalInit</code>、<code>SetMic</code>、<code>SetVolume</code>、<code>SetScreen</code> 等硬件抽象层接口。</p>
-      <p>源码声明：<code>[DllImport(..., EntryPoint="ChangeFrequency", CallingConvention=Cdecl)] int ChangeFrequency(ref int afterHz, ref int beforeHz)</code>，返回 1 表示成功，两个引用参数回传切换前后的 Hz。内部实现未逆向；从「循环调用 + 读回验证」的写法推断，它在硬件支持的档位间轮转。源码注释写明与荣耀 Fn+R 走同一个导出。</p>
-      <p>Windows 切刷新率的标准做法是 <code>user32!ChangeDisplaySettingsEx</code>，本工具没走那条路，而是借厂商 HAL。这是未文档化的私有接口，管家/OSD 更新改掉导出名或档位行为，工具会静默失效。</p>
+      <p>文件 <code>C:\Program Files\HONOR\OSD\HardwareHal.dll</code>，版本信息为 <code>Honor Device Co., Ltd.</code> / <code>Hardware Abstract Layer</code> / <code>PC Manager 1.0.0.1</code>。<code>ChangeFrequency</code> 是其中一个命名导出（序号 2），同表还有 <code>HalInit</code>、<code>SetMic</code>、<code>SetVolume</code>、<code>SetScreen</code> 等硬件抽象层接口。</p>
+      <p>源码声明：<code>[DllImport(..., EntryPoint="ChangeFrequency", CallingConvention=Cdecl)] int ChangeFrequency(ref int afterHz, ref int beforeHz)</code>，返回 1 表示成功。<strong>接口行为已确认</strong>：两个引用参数是<strong>纯输出</strong>（after / before），DLL 不读调用者传入的值；每次调用按机型硬编码档位表切到「比当前高的下一档」，到顶回绕最低档，<strong>没有目标 Hz 入参</strong>。底层就是标准 <code>ChangeDisplaySettingsW</code> 一次设 <code>dmDisplayFrequency</code> —— 这正是旧实现必须循环轮询的根因。</p>
+      <p>因此工具默认改走 <code>user32!ChangeDisplaySettingsEx</code> 一次设定目标 Hz；厂商 HAL 只在 Direct 失败时作为可选回退，管家 / OSD 更新不再让钩子静默失效。完整说明见 <code>HonorPowerRefresh-说明.md</code>。</p>
     </details>
   </section>
 
@@ -142,7 +142,7 @@ body.focus-ours .relation{opacity:.3}
       <tr><td>\HonorPowerRefreshHook</td><td><span class="tag ours">自装</span> 任务定义（配置）</td><td>本工程安装脚本</td><td><strong>是</strong></td></tr>
       <tr><td>HonorPowerRefresh.exe 及 C# 源码</td><td><span class="tag ours">自装</span> 一次性程序</td><td>本工程</td><td><strong>是</strong></td></tr>
       <tr><td>build / 安装 / 卸载 / config / log / 说明 / 本网页</td><td><span class="tag ours">自装</span> 工程配套</td><td>本工程</td><td><strong>是</strong></td></tr>
-      <tr><td>HardwareHal.dll / ChangeFrequency</td><td><span class="tag oem">厂商</span> 荣耀 PC Manager</td><td>荣耀</td><td>否</td></tr>
+      <tr><td>HardwareHal.dll / ChangeFrequency（可选回退）</td><td><span class="tag oem">厂商</span> 荣耀 PC Manager</td><td>荣耀</td><td>否</td></tr>
       <tr><td>Fn+R 热键</td><td><span class="tag oem">厂商</span> 管家 OSD</td><td>荣耀</td><td>否</td></tr>
     </tbody>
   </table>
@@ -150,8 +150,8 @@ body.focus-ours .relation{opacity:.3}
   <h3>只有第 2 层是我们写的吗</h3>
   <div class="answer">
     <p><strong>是，只有第 2 层是本工程产出的。</strong>第 1 层是 Windows 既有能力，第 3 层是荣耀既有组件；我们既没有写内核事件，也没有写厂商 DLL，只做了「订阅」和「调用」这两处接线。</p>
-    <p>三点限定：<strong>①</strong> 第 2 层的「任务订阅」是我们创建的一条 XML 配置，不是代码，底层机制仍属系统；<strong>②</strong>  exe 依赖系统 .NET CLR 与系统自带编译器，工程里不含运行时；<strong>③</strong> 图里两根箭头（事件订阅、P/Invoke）代表的是我们写的<strong>关系</strong>，不属于第 1 或第 3 层。</p>
-    <p>换句话说：<strong>系统只是广播了一条日志，工具把日志当闹钟，再借厂商的私有函数去拧硬件。</strong>跑一遍卸载脚本注销任务后，Windows 与荣耀管家的行为一切照旧。</p>
+    <p>三点限定：<strong>①</strong> 第 2 层的「任务订阅」是我们创建的一条 XML 配置，不是代码，底层机制仍属系统；<strong>②</strong> exe 依赖系统 .NET CLR 与系统自带编译器，工程里不含运行时；<strong>③</strong> 图里两根箭头（事件订阅、P/Invoke）代表的是我们写的<strong>关系</strong>，不属于第 1 或第 3 层。</p>
+    <p>改写后的说法：<strong>系统只是广播了一条日志，工具把日志当闹钟，直接用 Windows 标准 API 设定刷新率；厂商私有函数退居可选回退。</strong>跑一遍卸载脚本注销任务后，Windows 与荣耀管家的行为一切照旧。</p>
   </div>
 
   <footer>单文件离线网页 · 数据与工程文件同目录 · 无外部依赖</footer>

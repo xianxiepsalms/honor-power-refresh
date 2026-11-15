@@ -2,7 +2,9 @@
 
 项目/工具名：`honor-power-refresh`（即本文件夹名）。采用小写 kebab-case、无空格，与 `HonorPowerRefresh.exe` 和计划任务 `HonorPowerRefreshHook` 同源，便于命令行引用和纳入版本库。目录改名后，在新目录重跑一次 `./build.ps1`（或双击 `build.bat`）即可让计划任务指向新路径；工程内所有路径都相对自身定位，无需手改 XML。
 
-适用本机 HONOR FMB-P。目标刷新率由 `HonorPowerRefresh.config.ini` 配置，默认接通电源 120 Hz、使用电池 60 Hz。程序监听 Windows 的 AC/DC 电源通知，调用荣耀 OSD 的 Fn+R 刷新率切换函数 `HardwareHal.dll!ChangeFrequency`，并读回 Windows 报告的刷新率。已是目标刷新率时不会切换。
+适用本机 HONOR FMB-P。目标刷新率由 `HonorPowerRefresh.config.ini` 配置，默认接通电源 120 Hz、使用电池 60 Hz。程序在 Windows 记录 AC/DC 电源切换事件（或用户登录）时被唤醒，读当前供电与刷新率；已是目标则直接退出，否则**默认用 Windows 标准 `ChangeDisplaySettingsEx` 一次设定目标 Hz**（先用 `CDS_TEST` 探测驱动是否接受，再应用，最后读回验证）。只有标准 API 失败或读回不符、且 `HardwareHal.dll` 存在时，才回退调用荣耀 OSD 的 `ChangeFrequency`（与 Fn+R 同一入口，按档位轮转）。
+
+这次改动来自对 `ChangeFrequency` 的接口行为确认：它不接受目标 Hz，两个 `ref` 参数只是回传切换前后 Hz，每次调用只把刷新率切到机型档位表里的下一档，所以旧实现必须循环调用 + 固定等待 + 反复读回。详见文末「ChangeFrequency 接口行为说明」。
 
 构建与安装：有两类配置，别混在一起——`build.config.ini` 是**部署配置**（exe 路径、任务名、任务模板，只在 build 时读），`HonorPowerRefresh.config.ini` 是**运行时配置**（目标刷新率、日志开关，exe 每次启动都读）。`HonorPowerRefreshHook.xml` 是计划任务定义模板（任务计划程序导出后**已脱敏**的 XML，见下节）。执行 `./build.ps1` 完成全部：读取部署配置 → 编译源码到 `ExePath` → 生成 `build.generated.ps1` → 读取任务 XML 模板，自动填充 `<Command>`（ExePath）、`<URI>`、`Principal.UserId`（当前用户 SID）、`LogonTrigger.UserId`（当前用户名），再用 `Register-ScheduledTask -Xml -Force` 覆盖导入。任务不存在则创建，存在则整体覆盖；系统先校验 XML，导入失败时旧任务保持原样，所以**不需要先删除**（`-Recreate` 才走「先删再导入」，并带失败回滚）。默认每次都按模板重新导入，改了 XML 里任何设置都会生效。
 
@@ -34,9 +36,10 @@
 |---|---|---|
 | `AcRefreshRate` | `120` | 接通电源时的目标刷新率，单位 Hz |
 | `BatteryRefreshRate` | `60` | 使用电池时的目标刷新率，单位 Hz |
+| `SwitchMethod` | `Direct` | `Direct` = 标准 API 一次设定（默认，无轮询）；`HonorHal` = 强制走荣耀私有导出 |
 | `EnableLogging` | `false` | 改成 `true` 开启日志，切换记录追加到同目录 `HonorPowerRefresh.log` |
 
-目标刷新率以前写死在源码 `Sync()` 里，现在改为配置化。**改这三个值不需要重新编译、也不需要重跑 build**：exe 每次启动都读一遍配置，改完下次电源切换或登录触发即生效。注释用 `;` 或 `#`，未知键忽略；值非数字或超出 `1..1000` 时该项回退到内置默认值，并在开启日志时记一条警告。目标 Hz 若不在当前分辨率实际支持的档位里，程序会跳过本次切换（已有逻辑，不会硬设一个不支持的值）。
+目标刷新率以前写死在源码 `Sync()` 里，现在改为配置化。**改这四个值不需要重新编译、也不需要重跑 build**：exe 每次启动都读一遍配置，改完下次电源切换或登录触发即生效。`SwitchMethod` 未知值会回退 `Direct` 并在开启日志时记一条警告。注释用 `;` 或 `#`，未知键忽略；值非数字或超出 `1..1000` 时该项回退到内置默认值，并在开启日志时记一条警告。目标 Hz 若不在当前分辨率实际支持的档位里，程序会跳过本次切换（已有逻辑，不会硬设一个不支持的值）。
 
 开启日志后每条记录会带一行 `Config: AC=... Hz, battery=... Hz`，可直接核对配置有没有被读到；关闭日志时不再追加，旧日志文件不会自动删除。验证方法：把 `EnableLogging=true`，改一下目标值，触发一次电源切换或执行 `Start-ScheduledTask -TaskName HonorPowerRefreshHook`，再看 `.log`。
 
@@ -44,4 +47,27 @@
 
 三层归属：浏览器打开 `HonorPowerRefresh-layers.html`（单文件、离线可用），区分 Windows 系统事件、本工程产出的文件与荣耀私有组件，并附边界对照表。
 
-仅处理主显示器。若当前分辨率下没有目标刷新率，程序会停止本次切换；开启日志后会记录原因。荣耀电脑管家更新若更改或移除 `ChangeFrequency` 导出，钩子需要同步调整。
+仅处理主显示器。若当前分辨率下没有目标刷新率，程序会停止本次切换；开启日志后会记录原因。默认路径不再依赖荣耀私有导出，管家更新改掉 `ChangeFrequency` 也不会让钩子失效；只有显式设 `SwitchMethod=HonorHal` 或 Direct 失败回退时才会用到它。
+
+## ChangeFrequency 接口行为说明
+
+目标为荣耀 PC Manager 自带的 `C:\Program Files\HONOR\OSD\HardwareHal.dll`，`ChangeFrequency` 是其中序号 2 的命名导出。接口行为观察结果如下：
+
+**观察（接口行为，尚未做运行时实测）**
+
+| 问题 | 结论 |
+|---|---|
+| 两个 `ref` 参数是入参还是回传？ | **纯输出**。`param_1` 写回切换后 Hz（after），`param_2` 写回切换前 Hz（before）；DLL 从不读取调用者传入的值。 |
+| 能否一次直接设目标 Hz？ | **不能**。函数没有目标 Hz 入参；它按产品型号（`GLO-G` / `FRB-X` / `BRB-X` / `DRB-P` / `XWC-P` / `NWB-G` 等）硬编码档位表（如 `[60,120]`、`[48,60,90]`、`[60,120,165]`、`[60,180]`），每次调用切到「比当前高的下一档」，到顶回绕到最低档。 |
+| 返回值 | `1` = 读到当前 Hz、切换调用成功、且读回非零；`0` = 读当前 Hz 失败 / 机型不在支持表 / 切换失败 / 读回为 0。 |
+| 底层用什么切刷新率？ | **标准 Win32 API**：用 `EnumDisplaySettingsExW(NULL,-1,...,2)` 读 `dmDisplayFrequency`；用 `ChangeDisplaySettingsW(&DEVMODE, 1)` 设 `dmFields=DM_DISPLAYFREQUENCY` + `dmDisplayFrequency`，一次到位。此外还会用到 `SetDisplayConfig` / `QueryDisplayConfig`（其它路径使用）。 |
+| 是否依赖 OSD 守护进程 / IPC？ | 该函数路径上未见 IPC 调用；`IPCMessage.dll` 的导入服务于其它 HAL 导出。 |
+| 副作用 | 机型识别（`GetProductName`）、读支持档位、一次显示模式变更（HAL 传 `flags=1`，即 `CDS_UPDATEREGISTRY`，会写显示配置）；未见注册表服务项或网络访问。 |
+
+**推断**：工具此前必须「循环调用 + `Sleep(350)` + 读回」，正是因为导出只能轮转一档；档位表随机型变化，外部无法预知需要几次。
+
+**本机只读验证**：当前 3120×2080 / 120 Hz，可用档位 `[60, 120]`；对 60、120 Hz 分别做 `CDS_TEST` 均返回 `DISP_CHANGE_SUCCESSFUL(0)`，说明标准 API 一次设定可行，因此默认路径改为 Direct。该探针只测试、不应用模式变更。
+
+**未知**：未在本会话实测 Direct 的端到端效果（需用户触发一次电源切换或任务）；其它机型档位表与 `SetDisplayConfig` 路径未逐一验证；特殊机型的 59 Hz 分支未深入分析。
+
+**结论落地**：`SwitchMethod=Direct` 为默认 —— 一次调用、无轮询、无多次闪烁、不依赖管家更新。`HonorHal` 保留为回退，且把固定 350ms 等待换成有界读回（最多 6×100ms）。

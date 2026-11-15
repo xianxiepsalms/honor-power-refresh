@@ -1,0 +1,10 @@
+# Machine-specific generated config (contains absolute local paths)
+build.generated.ps1
+
+# Build output - regenerate with build.ps1 / build.bat
+HonorPowerRefresh.exe
+*.bak
+*.tmp
+
+# Runtime log
+HonorPowerRefresh.log

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>荣耀电源刷新率钩子 · 三层归属</title>
+<style>
+:root{
+  --bg:#1a1b1d; --panel:#232528; --line:#3a3d42; --txt:#eceae4; --muted:#a9a7a0;
+  --blue-bg:#0b3a66; --blue-card:#0e4a80; --blue-line:#4a94d6; --blue-txt:#e6f1fb; --blue-sub:#b5d4f4;
+  --gray-bg:#2c2c2a; --gray-card:#41413f; --gray-line:#9a9992; --gray-txt:#f1efe8; --gray-sub:#d3d1c7;
+  --amber-bg:#4a3008; --amber-card:#6b470f; --amber-line:#e0a02e; --amber-txt:#faeeda; --amber-sub:#f2cf8d;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;line-height:1.65}
+.wrap{max-width:980px;margin:0 auto;padding:32px 24px 56px}
+header{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;justify-content:space-between;margin-bottom:26px}
+h1{font-size:21px;font-weight:500;margin:0 0 6px}
+.lead{color:var(--muted);font-size:13px;margin:0;max-width:640px}
+button{background:transparent;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer;font-family:inherit;white-space:nowrap}
+button:hover{border-color:var(--muted)}
+button[aria-pressed="true"]{background:#3a3d42;border-color:#6f7278}
+.layer{border-radius:16px;padding:18px 20px 20px;border:1px solid;transition:opacity .25s,filter .25s}
+.layer.sys{background:var(--blue-bg);border-color:var(--blue-line)}
+.layer.ours{background:var(--gray-bg);border-color:var(--gray-line)}
+.layer.oem{background:var(--amber-bg);border-color:var(--amber-line)}
+.layer-head{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:baseline;margin-bottom:16px}
+.layer-head h2{font-size:15px;font-weight:500;margin:0}
+.layer-head span{font-size:12px;opacity:.85}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.card{border-radius:8px;padding:12px 14px;border:1px solid}
+.sys .card{background:var(--blue-card);border-color:var(--blue-line)}
+.ours .card{background:var(--gray-card);border-color:var(--gray-line)}
+.oem .card{background:var(--amber-card);border-color:var(--amber-line)}
+.card b{display:block;font-size:13px;font-weight:500;margin-bottom:3px}
+.card small{display:block;font-size:12px;opacity:.85;word-break:break-word}
+.sys .card b{color:var(--blue-txt)} .sys .card small{color:var(--blue-sub)}
+.ours .card b{color:var(--gray-txt)} .ours .card small{color:var(--gray-sub)}
+.oem .card b{color:var(--amber-txt)} .oem .card small{color:var(--amber-sub)}
+.relation{display:flex;align-items:center;gap:12px;margin:10px 0 10px 24px;color:var(--muted);font-size:12px;transition:opacity .25s}
+.relation .arrow{font-size:18px;line-height:1}
+.layer.sys .layer-head h2{color:var(--blue-txt)}
+.layer.ours .layer-head h2{color:var(--gray-txt)}
+.layer.oem .layer-head h2{color:var(--amber-txt)}
+details{margin-top:14px;border-top:1px solid rgba(255,255,255,.12);padding-top:10px}
+summary{cursor:pointer;font-size:13px;opacity:.9}
+details p,details ul{font-size:13px;color:var(--muted);margin:10px 0 0}
+details ul{padding-left:20px}
+code{font-family:Consolas,monospace;font-size:12px;background:rgba(255,255,255,.08);padding:1px 5px;border-radius:4px}
+h3{font-size:16px;font-weight:500;margin:34px 0 12px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:500}
+.tag{display:inline-block;border-radius:5px;padding:1px 8px;font-size:12px;border:1px solid}
+.tag.sys{color:var(--blue-txt);border-color:var(--blue-line)}
+.tag.ours{color:var(--gray-txt);border-color:var(--gray-line)}
+.tag.oem{color:var(--amber-txt);border-color:var(--amber-line)}
+.answer{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin-top:14px}
+.answer p{font-size:13px;color:var(--muted);margin:0 0 8px}
+.answer p:last-child{margin-bottom:0}
+.answer strong{color:var(--txt);font-weight:500}
+footer{margin-top:30px;color:var(--muted);font-size:12px}
+body.focus-ours .layer:not(.ours){opacity:.28;filter:grayscale(.55)}
+body.focus-ours .relation{opacity:.3}
+@media (max-width:640px){.cards{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>荣耀电源刷新率钩子 · 三层归属</h1>
+      <p class="lead">系统事件、自装工具、厂商私有组件分属三方，彼此并不知道对方存在，靠任务定义与 P/Invoke 硬接起来。</p>
+    </div>
+    <button id="onlyOurs" type="button" aria-pressed="false">只看我们写的（第 2 层）</button>
+  </header>
+
+  <section class="layer sys">
+    <div class="layer-head">
+      <h2>1 · Windows 系统自带</h2><span>系统提供，不依赖本工程</span>
+    </div>
+    <div class="cards">
+      <div class="card"><b>Kernel-Power 105</b><small>内核写入 System 日志</small></div>
+      <div class="card"><b>Task Scheduler</b><small>订阅事件并启动进程</small></div>
+      <div class="card"><b>Win32 API</b><small>读供电状态与刷新率</small></div>
+    </div>
+    <details>
+      <summary>这一层到底是什么</summary>
+      <p><code>Microsoft-Windows-Kernel-Power</code> 是内核电源管理器的事件日志提供程序，把电源状态变化写进 System 日志。EventID 105 的消息是「电源更改。」，本机实测由 <code>ProcessID=4</code>（System 进程）、<code>S-1-5-18</code>（LOCAL SYSTEM）发出，附带 <code>AcOnline=true</code>、<code>RemainingCapacity</code>、<code>FullChargeCapacity</code>。</p>
+      <p>它是一条既成事实的记录，<strong>不是回调、不会调用任何程序</strong>。系统日志里 Kernel-Power 还有 566、507、506、521、109、42、107 等诸多 ID，105 只是 AC/DC 切换那一种。事件本身带 <code>AcOnline</code>，但本工具没有读事件数据，而是启动后自己调 <code>GetSystemPowerStatus</code>。</p>
+      <p>Task Scheduler 服务与 <code>GetSystemPowerStatus</code> / <code>EnumDisplaySettingsEx</code> 都是微软提供的系统能力；.NET Framework CLR 与系统自带编译器同样属于这一层。</p>
+    </details>
+  </section>
+
+  <div class="relation"><span class="arrow">↓</span> 事件订阅（任务定义里的 XPath 订阅）</div>
+
+  <section class="layer ours">
+    <div class="layer-head">
+      <h2>2 · 自装钩子工具</h2><span>outputs 目录里的文件 + 任务定义</span>
+    </div>
+    <div class="cards">
+      <div class="card"><b>任务订阅</b><small>\HonorPowerRefreshHook</small></div>
+      <div class="card"><b>一次性 exe</b><small>HonorPowerRefresh.exe</small></div>
+      <div class="card"><b>工程配套</b><small>源码 / build / config</small></div>
+    </div>
+    <details open>
+      <summary>本工程实际产出的东西</summary>
+      <ul>
+        <li>计划任务定义 <code>\HonorPowerRefreshHook</code>：由安装脚本手写 XML 注册，含 Kernel-Power 105 事件触发器与登录触发器。这是<strong>一条配置</strong>，不是程序。</li>
+        <li><code>HonorPowerRefresh.cs</code> 及其编译产物 <code>HonorPowerRefresh.exe</code>：一次性 C# 程序，负责策略与校验。</li>
+        <li><code>build.ps1</code>、<code>Install-HonorPowerRefresh.ps1</code>、<code>Remove-HonorPowerRefresh.ps1</code>、<code>HonorPowerRefresh.config.ini</code>、<code>HonorPowerRefresh.log</code>、说明文档与本网页。</li>
+      </ul>
+      <p>执行链：等 750ms → 读 AC/电池 → 定目标 120/60 Hz → 已是目标则退出 → 枚举可用档位 → 调 <code>ChangeFrequency</code> → 读回验证。不常驻、不改注册表或服务、不装驱动；exe 未签名，位于用户可写目录。</p>
+    </details>
+  </section>
+
+  <div class="relation"><span class="arrow">↓</span> P/Invoke 调用（DllImport）</div>
+
+  <section class="layer oem">
+    <div class="layer-head">
+      <h2>3 · 荣耀 OEM 私有组件</h2><span>PC Manager / OSD</span>
+    </div>
+    <div class="cards">
+      <div class="card"><b>HardwareHal.dll</b><small>Hardware Abstract Layer</small></div>
+      <div class="card"><b>ChangeFrequency</b><small>命名导出，序号 2</small></div>
+      <div class="card"><b>Fn+R 热键</b><small>与工具同一入口</small></div>
+    </div>
+    <details>
+      <summary>这一层不是 Windows API</summary>
+      <p>文件 <code>C:\Program Files\HONOR\OSD\HardwareHal.dll</code>，版本信息为 <code>Honor Device Co., Ltd.</code> / <code>Hardware Abstract Layer</code> / <code>PC Manager 1.0.0.1</code>。解析 PE 导出表：PE32+ x64，Base=1，20 个函数 / 20 个命名导出，<code>ChangeFrequency</code> 是真实的命名导出（序号 2，函数 RVA <code>0xBBC0</code>），同表还有 <code>HalInit</code>、<code>SetMic</code>、<code>SetVolume</code>、<code>SetScreen</code> 等硬件抽象层接口。</p>
+      <p>源码声明：<code>[DllImport(..., EntryPoint="ChangeFrequency", CallingConvention=Cdecl)] int ChangeFrequency(ref int afterHz, ref int beforeHz)</code>，返回 1 表示成功，两个引用参数回传切换前后的 Hz。内部实现未逆向；从「循环调用 + 读回验证」的写法推断，它在硬件支持的档位间轮转。源码注释写明与荣耀 Fn+R 走同一个导出。</p>
+      <p>Windows 切刷新率的标准做法是 <code>user32!ChangeDisplaySettingsEx</code>，本工具没走那条路，而是借厂商 HAL。这是未文档化的私有接口，管家/OSD 更新改掉导出名或档位行为，工具会静默失效。</p>
+    </details>
+  </section>
+
+  <h3>边界对照</h3>
+  <table>
+    <thead><tr><th>名称</th><th>归属</th><th>由谁提供</th><th>本工程产出</th></tr></thead>
+    <tbody>
+      <tr><td>Kernel-Power 105</td><td><span class="tag sys">系统</span> Windows 内核日志</td><td>微软</td><td>否</td></tr>
+      <tr><td>Task Scheduler 服务 / Win32 API / .NET CLR</td><td><span class="tag sys">系统</span> 操作系统能力</td><td>微软</td><td>否</td></tr>
+      <tr><td>\HonorPowerRefreshHook</td><td><span class="tag ours">自装</span> 任务定义（配置）</td><td>本工程安装脚本</td><td><strong>是</strong></td></tr>
+      <tr><td>HonorPowerRefresh.exe 及 C# 源码</td><td><span class="tag ours">自装</span> 一次性程序</td><td>本工程</td><td><strong>是</strong></td></tr>
+      <tr><td>build / 安装 / 卸载 / config / log / 说明 / 本网页</td><td><span class="tag ours">自装</span> 工程配套</td><td>本工程</td><td><strong>是</strong></td></tr>
+      <tr><td>HardwareHal.dll / ChangeFrequency</td><td><span class="tag oem">厂商</span> 荣耀 PC Manager</td><td>荣耀</td><td>否</td></tr>
+      <tr><td>Fn+R 热键</td><td><span class="tag oem">厂商</span> 管家 OSD</td><td>荣耀</td><td>否</td></tr>
+    </tbody>
+  </table>
+
+  <h3>只有第 2 层是我们写的吗</h3>
+  <div class="answer">
+    <p><strong>是，只有第 2 层是本工程产出的。</strong>第 1 层是 Windows 既有能力，第 3 层是荣耀既有组件；我们既没有写内核事件，也没有写厂商 DLL，只做了「订阅」和「调用」这两处接线。</p>
+    <p>三点限定：<strong>①</strong> 第 2 层的「任务订阅」是我们创建的一条 XML 配置，不是代码，底层机制仍属系统；<strong>②</strong>  exe 依赖系统 .NET CLR 与系统自带编译器，工程里不含运行时；<strong>③</strong> 图里两根箭头（事件订阅、P/Invoke）代表的是我们写的<strong>关系</strong>，不属于第 1 或第 3 层。</p>
+    <p>换句话说：<strong>系统只是广播了一条日志，工具把日志当闹钟，再借厂商的私有函数去拧硬件。</strong>跑一遍卸载脚本注销任务后，Windows 与荣耀管家的行为一切照旧。</p>
+  </div>
+
+  <footer>单文件离线网页 · 数据与工程文件同目录 · 无外部依赖</footer>
+</div>
+<script>
+  var btn = document.getElementById('onlyOurs');
+  btn.addEventListener('click', function () {
+    var on = document.body.classList.toggle('focus-ours');
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    btn.textContent = on ? '显示全部三层' : '只看我们写的（第 2 层）';
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kernel-Power 与 ChangeFrequency 的三层归属划分 · 接口行为确认后修订</title>
+<style>
+:root{
+  --bg:#1a1b1d; --panel:#232528; --line:#3a3d42; --txt:#eceae4; --muted:#bdbbb4;
+  --blue-line:#4a94d6; --amber-line:#e0a02e;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;line-height:1.7}
+.wrap{max-width:1000px;margin:0 auto;padding:30px 22px 56px}
+h1{font-size:20px;font-weight:500;margin:0 0 6px}
+h2{font-size:16px;font-weight:500;margin:30px 0 10px}
+.lead{color:var(--muted);font-size:13px;margin:0 0 20px;max-width:760px}
+.badge{display:inline-block;border:1px solid var(--line);border-radius:6px;padding:1px 9px;font-size:12px;color:var(--muted);margin-left:8px;vertical-align:2px}
+.figure{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px}
+svg{display:block;width:100%;height:auto}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:500}
+td:first-child{color:var(--txt);white-space:nowrap}
+code{font-family:Consolas,monospace;font-size:12px;background:rgba(255,255,255,.08);padding:1px 5px;border-radius:4px;word-break:break-all}
+ul{font-size:13px;color:var(--muted);padding-left:20px;margin:10px 0 0}
+li{margin-bottom:7px}
+strong{color:var(--txt);font-weight:500}
+.note{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--blue-line);border-radius:8px;padding:12px 16px;font-size:13px;color:var(--muted);margin-top:16px}
+.ev{font-size:12px;color:var(--muted);word-break:break-all;margin:4px 0 0}
+footer{margin-top:32px;color:var(--muted);font-size:12px;border-top:1px solid var(--line);padding-top:14px}
+@media (max-width:640px){table{font-size:12px}th,td{padding:7px 6px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Kernel-Power 与 ChangeFrequency 的三层归属划分<span class="badge">接口行为确认后修订</span></h1>
+  <p class="lead">确认 <code>HardwareHal.dll!ChangeFrequency</code> 的接口行为后，三层关系没变，但<strong>主链路变了</strong>：默认只用到第 1、2 层——自装 exe 直接调 Windows 标准 API 一次设定目标 Hz；厂商 DLL 退居「Direct 失败才用」的可选回退。</p>
+
+  <div class="figure">
+<svg viewBox="0 0 680 500" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>系统事件、自装钩子与荣耀厂商组件的三层划分（接口行为确认后修订）</title>
+<desc>Windows 内核发出 Kernel-Power 105 事件，自装计划任务订阅后启动 exe；exe 默认直接调用 Win32 标准 API 一次设定目标刷新率，仅在失败时通过 P/Invoke 回退到荣耀 HardwareHal.dll 的 ChangeFrequency 导出。</desc>
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+<path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</marker>
+</defs>
+<rect x="40" y="40" width="600" height="112" rx="16" fill="#042C53" stroke="#378ADD" stroke-width="0.5"/>
+<text x="56" y="66" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="14" font-weight="500" fill="#E6F1FB" dominant-baseline="central">1 · Windows 系统自带</text>
+<text x="624" y="66" text-anchor="end" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="12" font-weight="400" fill="#B5D4F4" dominant-baseline="central">系统提供，不依赖本工程</text>
+<rect x="56" y="84" width="180" height="52" rx="8" fill="#0C447C" stroke="#85B7EB" stroke-width="0.5"/>
+<text x="68" y="102" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="13" font-weight="500" fill="#E6F1FB" dominant-baseline="central">Kernel-Power 105</text>
+<text x="68" y="120" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="12" font-weight="400" fill="#B5D4F4" dominant-baseline="central">内核写入 System 日志</text>
+<rect x="250" y="84" width="180" height="52" rx="8" fill="#0C447C" stroke="#85B7EB" stroke-width="0.5"/>
+<text x="262" y="102" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="13" font-weight="500" fill="#E6F1FB" dominant-baseline="central">Task Scheduler</text>
+<text x="262" y="120" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="12" font-weight="400" fill="#B5D4F4" dominant-baseline="central">订阅事件并启动进程</text>
+<rect x="444" y="84" width="180" height="52" rx="8" fill="#0C447C" stroke="#85B7EB" stroke-width="0.5"/>
+<text x="456" y="102" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="13" font-weight="500" fill="#E6F1FB" dominant-baseline="central">Win32 API</text>
+<text x="456" y="120" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="12" font-weight="400" fill="#B5D4F4" dominant-baseline="central">读状态 + 设目标 Hz</text>
+<path d="M340 152 L340 178" fill="none" stroke="#B4B2A9" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="352" y="165" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="12" font-weight="400" fill="#B4B2A9" dominant-baseline="central">事件订阅</text>
+<rect x="40" y="184" width="600" height="112" rx="16" fill="#2C2C2A" stroke="#888780" stroke-width="0.5"/>
+<text x="56" y="210" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="14" font-weight="500" fill="#F1EFE8" dominant-baseline="central">2 · 自装钩子工具</text>
+<text x="624" y="210" text-anchor="end" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="12" font-weight="400" fill="#D3D1C7" dominant-baseline="central">工程目录文件 + 任务定义</text>
+<rect x="56" y="228" width="180" height="52" rx="8" fill="#444441" stroke="#B4B2A9" stroke-width="0.5"/>
+<text x="68" y="246" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="13" font-weight="500" fill="#F1EFE8" dominant-baseline="central">任务订阅</text>
+<text x="68" y="264" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="12" font-weight="400" fill="#D3D1C7" dominant-baseline="central">\HonorPowerRefreshHook</text>
+<rect x="250" y="228" width="180" height="52" rx="8" fill="#444441" stroke="#B4B2A9" stroke-width="0.5"/>
+<text x="262" y="246" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="13" font-weight="500" fill="#F1EFE8" dominant-baseline="central">一次性 exe</text>
+<text x="262" y="264" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="12" font-weight="400" fill="#D3D1C7" dominant-baseline="central">HonorPowerRefresh.exe</text>
+<rect x="444" y="228" width="180" height="52" rx="8" fill="#444441" stroke="#B4B2A9" stroke-width="0.5"/>
+<text x="456" y="246" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="13" font-weight="500" fill="#F1EFE8" dominant-baseline="central">默认策略 Direct</text>
+<text x="456" y="264" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="12" font-weight="400" fill="#D3D1C7" dominant-baseline="central">一次设定，无需轮询</text>
+<path d="M340 296 L340 322" fill="none" stroke="#8A8880" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+<text x="352" y="309" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="12" font-weight="400" fill="#B4B2A9" dominant-baseline="central">仅失败时回退：P/Invoke</text>
+<rect x="40" y="328" width="600" height="112" rx="16" fill="#412402" stroke="#BA7517" stroke-width="0.5"/>
+<text x="56" y="354" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="14" font-weight="500" fill="#FAEEDA" dominant-baseline="central">3 · 荣耀 OEM 私有组件（可选回退）</text>
+<text x="624" y="354" text-anchor="end" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="12" font-weight="400" fill="#FAC775" dominant-baseline="central">行为已确认 · 非默认路径</text>
+<rect x="56" y="372" width="180" height="52" rx="8" fill="#633806" stroke="#EF9F27" stroke-width="0.5"/>
+<text x="68" y="390" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="13" font-weight="500" fill="#FAEEDA" dominant-baseline="central">HardwareHal.dll</text>
+<text x="68" y="408" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="12" font-weight="400" fill="#FAC775" dominant-baseline="central">Hardware Abstract Layer</text>
+<rect x="250" y="372" width="180" height="52" rx="8" fill="#633806" stroke="#EF9F27" stroke-width="0.5"/>
+<text x="262" y="390" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="13" font-weight="500" fill="#FAEEDA" dominant-baseline="central">ChangeFrequency</text>
+<text x="262" y="408" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="12" font-weight="400" fill="#FAC775" dominant-baseline="central">纯输出 · 每次轮转一档</text>
+<rect x="444" y="372" width="180" height="52" rx="8" fill="#633806" stroke="#EF9F27" stroke-width="0.5"/>
+<text x="456" y="390" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="13" font-weight="500" fill="#FAEEDA" dominant-baseline="central">Fn+R 热键</text>
+<text x="456" y="408" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="12" font-weight="400" fill="#FAC775" dominant-baseline="central">管家自己的切换入口</text>
+<rect x="40" y="450" width="600" height="42" rx="10" fill="#202225" stroke="#4A4D52" stroke-width="0.5"/>
+<text x="56" y="466" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="12" font-weight="400" fill="#F1EFE8" dominant-baseline="central">默认：事件 → 任务 → exe → ChangeDisplaySettingsEx（一次设定目标 Hz）</text>
+<text x="56" y="484" font-family="'Microsoft YaHei','PingFang SC',sans-serif" font-size="12" font-weight="400" fill="#B4B2A9" dominant-baseline="central">回退：Direct 失败 → P/Invoke → ChangeFrequency（每次轮转一档，行为已确认）</text>
+</svg>
+  </div>
+
+  <h2>这次修订改了什么</h2>
+  <table>
+    <thead><tr><th>图中位置</th><th>旧图（确认之前）</th><th>修订后</th></tr></thead>
+    <tbody>
+      <tr><td>第 1 层 · Win32 API</td><td>只读供电状态与刷新率</td><td>还负责<strong>直接设定目标 Hz</strong>：<code>CDS_TEST</code> 探测后一次 <code>ChangeDisplaySettingsEx</code></td></tr>
+      <tr><td>第 2 层 · exe 策略</td><td>循环调 <code>ChangeFrequency</code> + <code>Sleep(350)</code> + 反复读回</td><td>默认 <strong>Direct</strong>：一次设定 + 有界读回，<strong>无轮询、无多次闪烁</strong></td></tr>
+      <tr><td>2 → 3 箭头</td><td>实线「P/Invoke 调用」，画成主链路</td><td>虚线「仅失败时回退」，厂商层<strong>可选</strong></td></tr>
+      <tr><td>第 3 层 · 厂商组件</td><td>标注「内部实现未确认」，工具必须依赖</td><td>标注「行为已确认 · 非默认路径」；管家更新不再让钩子静默失效</td></tr>
+      <tr><td>第 2 层副标题</td><td>写死旧工程目录名</td><td>改为通用的「工程目录文件 + 任务定义」，与迁移后的位置解耦</td></tr>
+    </tbody>
+  </table>
+
+  <h2>接口行为摘要</h2>
+  <ul>
+    <li><code>ChangeFrequency(ref int afterHz, ref int beforeHz)</code> 的两个引用参数是<strong>纯输出</strong>，DLL 从不读取调用者传入的值；函数<strong>没有目标 Hz 入参</strong>。</li>
+    <li>按产品型号硬编码档位表（如 <code>[60,120]</code>、<code>[48,60,90]</code>、<code>[60,120,165]</code>），每次调用切到「比当前高的下一档」，到顶回绕最低档——这正是旧实现必须循环轮询的根因。</li>
+    <li>底层用的就是标准 Win32：<code>EnumDisplaySettingsExW</code> 读、<code>ChangeDisplaySettingsW(&amp;DEVMODE, 1)</code> 设 <code>dmDisplayFrequency</code>，一次到位。既然如此，工具完全可以自己一次设目标 Hz。</li>
+    <li>该函数路径上未见 IPC 调用；有可见副作用是 <code>CDS_UPDATEREGISTRY</code> 写显示配置。</li>
+    <li>三层归属判断不变：<strong>只有第 2 层是本工程产出的</strong>；第 1 层是 Windows 既有能力，第 3 层是荣耀既有组件，我们只写了「订阅」和「调用」两处接线。</li>
+  </ul>
+
+  <div class="note">接口行为观察结论，尚未做运行时实测。Direct 的端到端实际切换仍需触发一次电源切换（或手动启动任务）验证；<code>SwitchMethod=HonorHal</code> 可强制走回退路径。</div>
+
+  <h2>说明范围</h2>
+  <p class="ev">以上为接口行为观察结论，尚未做运行时实测；档位表随机型变化，具体表现以本机可用档位为准。</p>
+
+  <footer>单文件离线网页 · 高对比配色 · 无外部依赖 · 完整结论见 <code>HonorPowerRefresh-说明.md</code> 与 <code>HonorPowerRefresh-layers.html</code></footer>
+</div>
+</body>
+</html>

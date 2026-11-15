@@ -18,7 +18,8 @@
       <RegistrationInfo>/<URI>                <- \TaskName
       <Principals>/<Principal>/<UserId>       <- 当前用户 SID
       <LogonTrigger>/<UserId>                 <- 当前用户名
-    模板是任务计划程序导出的 UTF-16 XML；脚本按 BOM 自动识别 UTF-16 / UTF-8。
+    工程模板是 UTF-8（无 BOM）XML，便于版本库 diff；脚本按 BOM 自动识别编码，
+    也兼容任务计划程序 GUI 导出的 UTF-16 LE 模板。
 
     导入使用 Register-ScheduledTask -Xml -Force：任务不存在则创建，存在则整体覆盖，
     是单次操作，不需要先删除。-Recreate 才走「先删再导入」（带失败自动回滚）。
@@ -93,7 +94,8 @@ function Resolve-ConfiguredPath([string] $Value, [string] $BaseDir, [string] $Fa
 }
 
 function Get-TaskXmlText([string] $Path) {
-    # 任务计划程序导出的是 UTF-16 LE + BOM；也可能是编辑器另存的 UTF-8。
+    # 工程模板是 UTF-8（无 BOM）；同时兼容任务计划程序 GUI 导出的 UTF-16 LE + BOM，
+    # 以及带 BOM 的 UTF-8。纯 ASCII 内容下无 BOM 也最稳妥。
     $bytes = [IO.File]::ReadAllBytes($Path)
     if ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) {
         return [Text.Encoding]::Unicode.GetString($bytes, 2, $bytes.Length - 2)

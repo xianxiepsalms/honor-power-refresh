@@ -6,7 +6,7 @@
 
 这次改动来自对 `ChangeFrequency` 的接口行为确认：它不接受目标 Hz，两个 `ref` 参数只是回传切换前后 Hz，每次调用只把刷新率切到机型档位表里的下一档，所以旧实现必须循环调用 + 固定等待 + 反复读回。详见文末「ChangeFrequency 接口行为说明」。
 
-构建与安装：有两类配置，别混在一起——`build.config.ini` 是**部署配置**（exe 路径、任务名、任务模板，只在 build 时读），`HonorPowerRefresh.config.ini` 是**运行时配置**（目标刷新率、日志开关，exe 每次启动都读）。`HonorPowerRefreshHook.xml` 是计划任务定义模板（任务计划程序导出后**已脱敏**的 XML，见下节）。执行 `./build.ps1` 完成全部：读取部署配置 → 编译源码到 `ExePath` → 生成 `build.generated.ps1` → 读取任务 XML 模板，自动填充 `<Command>`（ExePath）、`<URI>`、`Principal.UserId`（当前用户 SID）、`LogonTrigger.UserId`（当前用户名），再用 `Register-ScheduledTask -Xml -Force` 覆盖导入。任务不存在则创建，存在则整体覆盖；系统先校验 XML，导入失败时旧任务保持原样，所以**不需要先删除**（`-Recreate` 才走「先删再导入」，并带失败回滚）。默认每次都按模板重新导入，改了 XML 里任何设置都会生效。
+构建与安装：有两类配置，别混在一起——`build.config.ini` 是**部署配置**（exe 路径、任务名、任务模板，只在 build 时读），`HonorPowerRefresh.config.ini` 是**运行时配置**（目标刷新率、日志开关，exe 每次启动都读）。`HonorPowerRefreshHook.xml` 是计划任务定义模板（任务计划程序导出后**已脱敏、已转为 UTF-8** 的 XML，见下节）。执行 `./build.ps1` 完成全部：读取部署配置 → 编译源码到 `ExePath` → 生成 `build.generated.ps1` → 读取任务 XML 模板，自动填充 `<Command>`（ExePath）、`<URI>`、`Principal.UserId`（当前用户 SID）、`LogonTrigger.UserId`（当前用户名），再用 `Register-ScheduledTask -Xml -Force` 覆盖导入。任务不存在则创建，存在则整体覆盖；系统先校验 XML，导入失败时旧任务保持原样，所以**不需要先删除**（`-Recreate` 才走「先删再导入」，并带失败回滚）。默认每次都按模板重新导入，改了 XML 里任何设置都会生效。
 
 **模板已脱敏（可安全提交/分享）**：原导出 XML 里的真实登录名 `域名\用户名`、账户 SID、以及旧工程绝对路径都已替换为 `REPLACE_ME_USER_NAME` / `REPLACE_ME_USER_SID` / `REPLACE_ME_EXE_PATH` 三个占位符；文件内已无中文姓名、域账号、本机 SID 或个人目录路径。这三处连同 `<URI>` 恰好就是 build 每次导入时无条件重写的四处，所以**占位符不影响功能**，换电脑、换用户、换目录都能用。反过来，**绝对不要拿这份模板去任务计划程序里手动「导入任务」**：那会绕过自动填充，把 `REPLACE_ME_EXE_PATH` 当成真实 exe 路径写进生效态，任务必然启动失败。要生效一律走 `./build.ps1`（或 `./build.bat`）。
 
@@ -28,7 +28,7 @@
 
 只编译、不碰任务：`./build.ps1 -SkipTaskSync`。只改了 XML、不想重新编译：`./build.ps1 -TaskOnly`（只导入任务）。可用 `-Output` 覆盖产物路径、`-Config` 用另一份配置、`-TaskXml` 指定另一份模板、`-GeneratedConfig` 改生成配置位置、`-KeepBackup` 备份旧 exe。先编译到临时文件，成功后才替换，失败时原有 exe 保持不变。
 
-可迁移：整个目录搬走后保持 `ExePath=auto` 与 `TaskXml=auto`，在**新目录**跑一次 `./build.ps1`，任务的绝对路径会自动改为新位置；若要把 exe 部署到与源码不同的目录，在 `build.config.ini` 里写绝对路径即可。**唯一对目录敏感的是系统里持久化的任务定义（`<Exec><Command>` 里的绝对路径）**，工程文件本身都用相对自身目录定位。模板里的 URI、SID、用户名、exe 路径都已是占位符，导入时自动按当前用户与当前目录覆盖，换电脑/换用户也能用。`build.generated.ps1` 是含本机路径的生成物，不要提交到版本库；`HonorPowerRefreshHook.xml` 是 UTF-16，若纳入版本库可另存为 UTF-8（脚本按 BOM 自动识别两种编码）。
+可迁移：整个目录搬走后保持 `ExePath=auto` 与 `TaskXml=auto`，在**新目录**跑一次 `./build.ps1`，任务的绝对路径会自动改为新位置；若要把 exe 部署到与源码不同的目录，在 `build.config.ini` 里写绝对路径即可。**唯一对目录敏感的是系统里持久化的任务定义（`<Exec><Command>` 里的绝对路径）**，工程文件本身都用相对自身目录定位。模板里的 URI、SID、用户名、exe 路径都已是占位符，导入时自动按当前用户与当前目录覆盖，换电脑/换用户也能用。`build.generated.ps1` 是含本机路径的生成物，不要提交到版本库；`HonorPowerRefreshHook.xml` 已转为 UTF-8（无 BOM），版本库里可直接 diff；脚本按 BOM 自动识别编码，仍兼容任务计划程序 GUI 导出的 UTF-16 模板。
 
 运行时配置 `HonorPowerRefresh.config.ini`（必须和 `HonorPowerRefresh.exe` 同目录）：
 
